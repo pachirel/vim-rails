@@ -393,7 +393,7 @@ function! s:readable_model_name(...) dict abort
   elseif f =~ '\<\%(test\|spec\)/exemplars/.*_exemplar\.rb$'
     return s:sub(f,'.*<%(test|spec)/exemplars/(.*)_exemplar\.rb$','\1')
   elseif f =~ '\<\%(test/\|spec/\)\=factories/.*\.rb$'
-    return s:sub(f,'.*<%(test/|spec/)=factories/(.{-})%(_factory)=\.rb$','\1')
+    return rails#singularize(s:sub(f,'.*<%(test/|spec/)=factories/(.{-})%(_factory)=\.rb$','\1'))
   elseif f =~ '\<\%(test/\|spec/\)\=fabricators/.*\.rb$'
     return s:sub(f,'.*<%(test/|spec/)=fabricators/(.{-})%(_fabricator)=\.rb$','\1')
   elseif a:0 && a:1
@@ -724,6 +724,8 @@ function! s:readable_calculate_file_type() dict abort
     else
       let r = "fixtures" . (e == "" ? "" : "-" . e)
     endif
+  elseif f =~ '\<\%(test\|spec\)/factories\>'
+    let r = 'factories'
   elseif f =~ '\<test/.*_test\.rb'
     let r = "test"
   elseif f =~ '\<spec/.*_spec\.rb'
@@ -1910,6 +1912,9 @@ function! s:RailsFind()
     return RailsFilePath() =~ '\<spec/' ? 'spec/'.res : res
   endif
 
+  let res = s:findamethod('factories','factories/\1')
+  if res != ""|return res.".rb"|endif
+
   let res = s:findamethod('\%(\w\+\.\)\=resources','app/controllers/\1_controller.rb')
   if res != ""|return res|endif
 
@@ -2065,6 +2070,12 @@ function! s:RailsIncludefind(str,...)
     else
       let str = s:sub(str,'^/@!','test/fixtures/')
     endif
+  elseif line =~# '\<factories\s*(\='.fpat
+    if RailsFilePath() =~# '\<spec/'
+      let str = s:sub(str,'^/@!','spec/factories/')
+    else
+      let str = s:sub(str,'^/@!','test/factories/')
+    endif
   elseif line =~# '\<stylesheet_\(link_tag\|path\)\s*(\='.fpat
     let str = s:sub(str,'^/@!','/stylesheets/')
     if str != '' && fnamemodify(str, ':e') == ''
@@ -2146,6 +2157,7 @@ function! s:BufFinderCommands()
   call s:addfilecmds("helper")
   call s:addfilecmds("layout")
   call s:addfilecmds("fixtures")
+  call s:addfilecmds("factories")
   call s:addfilecmds("locale")
   if rails#app().has('test') || rails#app().has('spec')
     call s:addfilecmds("unittest")
@@ -2280,6 +2292,10 @@ endfunction
 
 function! s:fixturesList(A,L,P)
   return s:completion_filter(rails#app().relglob("test/fixtures/","**/*")+rails#app().relglob("spec/fixtures/","**/*"),a:A)
+endfunction
+
+function! s:factoriesList(A,L,P)
+  return s:completion_filter(rails#app().relglob("test/factories/","**/*'",".rb")+rails#app().relglob("spec/factories/","**/*",".rb"),a:A)
 endfunction
 
 function! s:localeList(A,L,P)
@@ -2543,6 +2559,26 @@ function! s:fixturesEdit(cmd,...)
     call s:edit(a:cmd,file)
   else
     call s:findedit(a:cmd,rails#app().find_file(c.e,["test/fixtures","spec/fixtures"],[".yml",".csv"],file))
+  endif
+endfunction
+
+function! s:factoriesEdit(cmd,...)
+  if a:0
+    let c = rails#underscore(a:1)
+  else
+    let c = rails#pluralize(s:model(1))
+  endif
+  if c == ""
+    return s:error("E471: Argument required")
+  endif
+  let e = fnamemodify(c,':e')
+  let e = e == '' ? e : '.'.e
+  let c = fnamemodify(c,':r')
+  let file = get(rails#app().test_suites(),0,'test').'/factories/'.c.e
+  if file =~ '\.\w\+$' && rails#app().find_file(c.e,["test/factories","spec/factories"]) ==# ''
+    call s:edit(a:cmd,file)
+  else
+    call s:findedit(a:cmd,rails#app().find_file(c.e,["test/factories","spec/factories"],[".rb"],file))
   endif
 endfunction
 
@@ -3120,6 +3156,9 @@ function! s:readable_related(...) dict abort
   elseif self.type_name('fixtures')
     let file = rails#singularize(fnamemodify(f,":t:r")).'_test.rb'
     return file
+  elseif self.type_name('factories')
+    let file = rails#singularize(fnamemodify(f,":t:r")).'.rb'
+    return file
   elseif f == ''
     call s:warn("No filename present")
   elseif f =~ '\<test/unit/routing_test\.rb$'
@@ -3597,7 +3636,7 @@ function! s:BufSyntax()
         if !empty(rails#app().user_assertions())
           exe "syn keyword rubyRailsUserMethod ".join(rails#app().user_assertions())
         endif
-        syn keyword rubyRailsTestMethod add_assertion assert assert_block assert_equal assert_in_delta assert_instance_of assert_kind_of assert_match assert_nil assert_no_match assert_not_equal assert_not_nil assert_not_same assert_nothing_raised assert_nothing_thrown assert_operator assert_raise assert_respond_to assert_same assert_send assert_throws assert_recognizes assert_generates assert_routing flunk fixtures fixture_path use_transactional_fixtures use_instantiated_fixtures assert_difference assert_no_difference assert_valid
+        syn keyword rubyRailsTestMethod add_assertion assert assert_block assert_equal assert_in_delta assert_instance_of assert_kind_of assert_match assert_nil assert_no_match assert_not_equal assert_not_nil assert_not_same assert_nothing_raised assert_nothing_thrown assert_operator assert_raise assert_respond_to assert_same assert_send assert_throws assert_recognizes assert_generates assert_routing flunk fixtures fixture_path use_transactional_fixtures use_instantiated_fixtures assert_difference assert_no_difference assert_valid factories
         syn keyword rubyRailsTestMethod test setup teardown
         if !buffer.type_name('test-unit')
           syn match   rubyRailsTestControllerMethod  '\.\@<!\<\%(get\|post\|put\|delete\|head\|process\|assigns\)\>'
@@ -3605,7 +3644,7 @@ function! s:BufSyntax()
           syn keyword rubyRailsTestControllerMethod assert_response assert_redirected_to assert_template assert_recognizes assert_generates assert_routing assert_dom_equal assert_dom_not_equal assert_select assert_select_rjs assert_select_encoded assert_select_email assert_tag assert_no_tag
         endif
       elseif buffer.type_name('spec')
-        syn keyword rubyRailsTestMethod describe context it its specify shared_examples_for it_should_behave_like before after subject fixtures controller_name helper_name
+        syn keyword rubyRailsTestMethod describe context it its specify shared_examples_for it_should_behave_like before after subject fixtures controller_name helper_name factories
         syn match rubyRailsTestMethod '\<let\>!\='
         syn keyword rubyRailsTestMethod violated pending expect double mock mock_model stub_model
         syn match rubyRailsTestMethod '\.\@<!\<stub\>!\@!'
@@ -4099,15 +4138,15 @@ function! s:BufAbbreviations()
       Rabbrev coo[ cookies
       Rabbrev fl[ flash
       Rabbrev rr( render
-      Rabbrev ra( render :action\ =>\ 
-      Rabbrev rc( render :controller\ =>\ 
-      Rabbrev rf( render :file\ =>\ 
-      Rabbrev ri( render :inline\ =>\ 
-      Rabbrev rj( render :json\ =>\ 
-      Rabbrev rl( render :layout\ =>\ 
-      Rabbrev rp( render :partial\ =>\ 
-      Rabbrev rt( render :text\ =>\ 
-      Rabbrev rx( render :xml\ =>\ 
+      Rabbrev ra( render :action\ =>\
+      Rabbrev rc( render :controller\ =>\
+      Rabbrev rf( render :file\ =>\
+      Rabbrev ri( render :inline\ =>\
+      Rabbrev rj( render :json\ =>\
+      Rabbrev rl( render :layout\ =>\
+      Rabbrev rp( render :partial\ =>\
+      Rabbrev rt( render :text\ =>\
+      Rabbrev rx( render :xml\ =>\
     endif
     if buffer.type_name('view','helper')
       Rabbrev dotiw distance_of_time_in_words
@@ -4115,8 +4154,8 @@ function! s:BufAbbreviations()
     endif
     if buffer.type_name('controller')
       Rabbrev re(  redirect_to
-      Rabbrev rea( redirect_to :action\ =>\ 
-      Rabbrev rec( redirect_to :controller\ =>\ 
+      Rabbrev rea( redirect_to :action\ =>\
+      Rabbrev rec( redirect_to :controller\ =>\
       Rabbrev rst( respond_to
     endif
     if buffer.type_name() ==# 'model' || buffer.type_name('model-arb')
@@ -4154,13 +4193,13 @@ function! s:BufAbbreviations()
       Rabbrev asre( assert_response
       Rabbrev art(  assert_redirected_to
     endif
-    Rabbrev :a    :action\ =>\ 
+    Rabbrev :a    :action\ =>\
     " hax
-    Rabbrev :c    :co________\ =>\ 
+    Rabbrev :c    :co________\ =>\
     inoreabbrev <buffer> <silent> :c <C-R>=<SID>TheCWord()<CR>
-    Rabbrev :i    :id\ =>\ 
-    Rabbrev :o    :object\ =>\ 
-    Rabbrev :p    :partial\ =>\ 
+    Rabbrev :i    :id\ =>\
+    Rabbrev :o    :object\ =>\
+    Rabbrev :p    :partial\ =>\
     Rabbrev logd( logger.debug
     Rabbrev logi( logger.info
     Rabbrev logw( logger.warn
@@ -4563,12 +4602,14 @@ function! s:BufSettings()
     let code      = '*.rb;*.rake;Rakefile'
     let templates = '*.'.s:gsub(s:view_types,',',';*.')
     let fixtures  = '*.yml;*.csv'
+    let factories  = '*.rb'
     let statics   = '*.html;*.css;*.js;*.xml;*.xsd;*.sql;.htaccess;README;README_FOR_APP'
     let b:browsefilter = ""
-          \."All Rails Files\t".code.';'.templates.';'.fixtures.';'.statics."\n"
+          \."All Rails Files\t".code.';'.templates.';'.fixtures.';'.factories.';'.statics."\n"
           \."Source Code (*.rb, *.rake)\t".code."\n"
           \."Templates (*.rhtml, *.rxml, *.rjs)\t".templates."\n"
           \."Fixtures (*.yml, *.csv)\t".fixtures."\n"
+          \."Factories (*.rb)\t".factories."\n"
           \."Static Files (*.html, *.css, *.js)\t".statics."\n"
           \."All Files (*.*)\t*.*\n"
   endif
